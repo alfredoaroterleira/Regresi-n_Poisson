@@ -1,0 +1,200 @@
+---
+title: "Poisson - Limpieza"
+author: "Alfredo Aro Terleira"
+date: "2024-09-04"
+output: html_document
+---
+# Limpieza de data y merge
+
+## Abrimos las bases de datos
+
+### Data 1: PEA_desocupada
+```{r}
+library(rio)
+PEA_desocupada = import("PEA_desocupada.xlsx")
+```
+
+```{r}
+PEA_desocupada <- PEA_desocupada[-1, ] #elimino la primera fila
+```
+
+```{r}
+names(PEA_desocupada)
+```
+
+```{r}
+PEA_desocupada <- PEA_desocupada[-c(5, 6)] #elimino columnas que no deseo
+```
+
+```{r}
+names(PEA_desocupada)[5] <- "PEA_desocupada"  #renombro mi variable
+```
+
+
+### Data 2: Población total
+
+```{r}
+poblacion = import("poblacion_total.xlsx")
+```
+
+```{r}
+poblacion <- poblacion[-1, ] 
+```
+
+```{r}
+names(poblacion)
+```
+```{r}
+poblacion <- poblacion[-c(2, 3, 4, 5, 6)]
+```
+
+```{r}
+names(poblacion)[2] <- "poblacion"  
+```
+
+
+### Data 3: Educación
+
+```{r}
+educacion = import("educacion.xlsx")
+```
+
+```{r}
+educacion <- educacion[-1, ] 
+```
+
+```{r}
+names(educacion)
+```
+```{r}
+educacion <- educacion[-c(2, 3, 4, 5, 6)]
+```
+
+```{r}
+names(educacion)[2] <- "educacion"  
+```
+
+
+### Data 4: bibliotecas
+
+```{r}
+bibliotecas = import("bibliotecas.xlsx")
+```
+
+```{r}
+bibliotecas <- bibliotecas[-1, ] 
+```
+
+```{r}
+names(bibliotecas)
+```
+```{r}
+bibliotecas <- bibliotecas[-c(2, 3, 4, 5, 6)]
+```
+
+```{r}
+names(bibliotecas)[2] <- "bibliotecas"  
+```
+
+
+
+### Data 5: Hogares con dependencia
+
+```{r}
+hogares_dependencia = import("hogares_dependencia.xlsx")
+```
+
+```{r}
+hogares_dependencia <- hogares_dependencia[-1, ] 
+```
+
+```{r}
+names(hogares_dependencia)
+```
+```{r}
+hogares_dependencia <- hogares_dependencia[-c(2, 3, 4, 5, 6)]
+```
+
+```{r}
+names(hogares_dependencia)[2] <- "hogares_dependencia"  
+```
+
+
+### Data 6: Planificación familiar
+
+```{r}
+plan_familiar = import("planificacion_familiar.xlsx")
+```
+
+```{r}
+plan_familiar <- plan_familiar[-1, ] 
+```
+
+```{r}
+names(plan_familiar)
+```
+```{r}
+plan_familiar <- plan_familiar[-c(2, 3, 4, 5, 6)]
+```
+
+```{r}
+names(plan_familiar)[2] <- "plan_familiar"  
+```
+
+
+### Data 7: instituciones
+
+```{r}
+instituciones = import("instituciones_educativas.xlsx")
+```
+
+```{r}
+instituciones <- instituciones[-1, ] 
+```
+
+```{r}
+names(instituciones)
+```
+```{r}
+instituciones <- instituciones[-c(2, 3, 4, 5, 6)]
+```
+
+```{r}
+names(instituciones)[2] <- "instituciones"  
+```
+
+
+
+
+### Merge
+```{r}
+# Creamos una lista
+lista <- list(PEA_desocupada, poblacion, educacion, bibliotecas, instituciones, hogares_dependencia, plan_familiar)
+
+# Haces el merge utilizando Reduce
+data_final <- Reduce(function(x, y) merge(x, y, by = "Ubigeo"), lista)
+```
+
+
+```{r}
+str(data_final)
+```
+```{r}
+data_final$instituciones = as.numeric(data_final$instituciones)
+data_final$bibliotecas <- as.factor(ifelse(data_final$bibliotecas == "1", "1", "0"))
+data_final$plan_familiar <- as.factor(ifelse(data_final$plan_familiar == "1", "1", "0"))
+```
+
+```{r}
+str(data_final)
+```
+```{r}
+data_final <- data_final[complete.cases(data_final),]
+```
+
+## Descargamos nuestra base de datos final
+```{r}
+library(openxlsx)
+write.xlsx(data_final, file = "data_final.xlsx")
+```
+

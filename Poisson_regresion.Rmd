@@ -1,0 +1,224 @@
+---
+title: "Poisson - regresion"
+author: "Alfredo Aro Terleira"
+date: "2024-09-04"
+output: html_document
+---
+
+## Subimos la data
+```{r}
+library(rio)
+data = import("data_final.xlsx")
+```
+
+## Revisamos la información de la data
+```{r}
+str(data)
+```
+
+# Explciación Poisson
+
+## Cuando nos referimos a crear una Regresión Poisson asumimos que la variable dependiente de nuestra regresión resulta ser de carácter numérica discreta, es decir, una variable de conteos. Ya sean por unidad de tiempo o espacio, por ejemplo: peso, altura, número de fallecidos, presupuestos o cantidad de votos a favor. (Esto también incluye a las tasas)
+
+## Asimismo, otros requisitos de la regresión Poisson son: 
+1. **Independencia**: Nuetras filas no deben tener relación alguna entre ellas
+
+2. **Equidispersión**: Para que la Regresión Poisson funcione se necesita que la media y la varianza resulten ser iguales. Si este supuesto no se cumplen podemos encontrarnos frente a una Sobredispersión o Subdispersión
+
+3. **Linealidad**: El logaritmo de la media de los datos, log(λ), debe ser una función lineal de los datos
+
+
+
+# Empecemos con el ejemplo
+
+## 1. Regresión
+
+Nuestra hipótesis es la siguiente: Nosotros creemos que la cantidad de la población económica desempleada (PEA_desocupada) se encuentra influenciada por otros factores como: el promedio de años de estudios de la población entre 15 años y más (educacion), si la municipalidad respectiva posee una biblioteca (bibliotecas), la cantidad de instituciones educativas públicas (instituciones), el porcentaje de hogares con alta dependencia económica (hogares_dependencia) y por si la municipalidad implementó o no un programa de control de planificación familiar (plan_familiar)
+
+
+```{r}
+hp = formula(PEA_desocupada ~ educacion + bibliotecas + instituciones + hogares_dependencia + plan_familiar)
+reg_p=glm(hp, data = data,          #censo es nuestra base de datos
+        offset=log(poblacion),    #no es obligatorio el offset
+        family = poisson(link = "log"))
+
+summary(reg_p)
+```
+El offset no resulta obligatorio, pero es importante ya que representa nuestra variable de control. En el presente caso sería la población total de cada distrito. 
+Colocamos el offset ya que, por ejemplo, no es lo mismo sostener que el impacto del covid fue igual de fuerte en dos ciudades solo porque ambas tuvieron alrededor de 2000 fallecidos. El impacto tiene que estar en relación con la cantidad total de población, por lo que si comprendemos que la primera ciudad contaba con alrededor de 4000 habitantes, y la segunda ciudad con 23000 no podríamos señalar que el impacto fue igual.
+
+
+### Si queremos una mejor visualización
+```{r}
+library(kableExtra)
+library(modelsummary)
+
+modelP=list("POISSON asegurados"=reg_p)
+
+modelsummary(modelP, title = "Regresión Poisson",
+             stars = TRUE,
+             output = "kableExtra")
+```
+
+## ¡PERO!: a diferencia de la anterior regresión, en este caso debemos exponenciar los coeficientes para calcular  el efecto real sobre nuestra variable dependiente
+
+
+```{r}
+modelsummary(modelP, title = "Regresión Poisson Exponenciada",
+             stars = TRUE,
+             statistic = 'conf.int',
+             exponentiate = T,
+             output = "kableExtra")
+```
+
+
+
+## ¿Qué sigue?: Prueba de Equidispersión
+Se supone que deberíamos proceder con el análisis de impacto de cada variable; sin embargo, si recuerdas lo que dijimos al inicio, debemos confirmar si nuestra media y nuestra varianza son iguales. Para ello empleamos la prueba de Equidispersión
+
+```{r}
+library(magrittr)
+library(AER)
+
+overdispersion=AER::dispersiontest(reg_p,alternative='greater')$ p.value<0.05
+underdispersion=AER::dispersiontest(reg_p,alternative='less')$ p.value<0.05
+# tabla
+testResult=as.data.frame(rbind(overdispersion,underdispersion))
+names(testResult)='¿Es probable?'
+testResult%>%kable(caption = "Test de Equidispersión")%>%kableExtra::kable_styling()
+
+```
+
+En este caso notamos que nuestra regresión posee **sobredispersión**, por lo que tendremos que emplear la regresión Quasipoisson y la Binomial Negativa
+
+**RECUERDA**: La Quasipoisson se usa cuando existe Sobredispersión (overdispersion) o Subdispersión (underdispersion). Mientras que la Binomial Negativa solo se puede emplear cuando existe Sobredispersión.
+
+
+## Quasipoisson
+
+```{r}
+reg_qp = glm(hp, data = data,
+          offset=log(poblacion),
+          family = quasipoisson(link = "log"))
+
+summary(reg_qp)
+```
+
+
+## Binomial Negativa
+
+```{r}
+library(MASS)
+
+hp2=formula(PEA_desocupada ~ educacion + bibliotecas + instituciones + hogares_dependencia + plan_familiar + offset(log(poblacion)))   #nueva fórmula necesaria!!!
+
+reg_bn=glm.nb(hp2,data=data)
+
+summary(reg_bn)
+```
+
+
+## Si queremos ver nuestras 3 regresiones exponenciadas:
+
+```{r}
+formatoNum <- function(x) format(x, digits = 4, scientific = FALSE)
+models_total=list('Poisson asegurados'=reg_p,
+                 'QuasiPoisson asegurados'=reg_qp,
+                 'Binomial Negativa asegurados'=reg_bn)
+
+
+modelsummary(models_total,fmt=formatoNum,
+             exponentiate = T, 
+             statistic = 'conf.int',
+             title = "EXP() de la Regresiones Poisson, Quasi Poisson  y Binomial Negativa",
+             stars = TRUE,
+             output = "kableExtra")
+
+```
+
+
+
+## ¿Qué nos toca hacer ahora?: Debemos confirmar si es que se eliminó la Sobredispersión para saber que regresión escoger
+
+Debemos recordar que si bien los AIC/BIC son importantes, en este caso buscaremos a la regresión que pueda eliminar la sobredispersión o la subdispersión si es el caso. Asimismo, recordar que la tabla anova si se emplea para comparar debe ser con cuidado, ya que no se tratan de modelos anidados
+
+```{r}
+#poisson case
+performance::check_overdispersion(reg_p)
+```
+
+```{r}
+#quasipoisson case
+performance::check_overdispersion(reg_qp)
+```
+
+```{r}
+#negative binomial case
+performance::check_overdispersion(reg_bn)
+```
+Lo ideal sería que nos salga un mensaje así en una de las tres pruebas (ya que así sabremos cuál regresión escoger): **## No overdispersion detected.** 
+
+Sin embargo, en ocasiones la vida se complica y debemos continuar :´( 
+
+En mi caso optaré por utilizar la regresión QuasiPoisson:
+
+
+
+## Interpretación de la Regresión QuasiPoisson
+
+```{r}
+modelQP=list("QUASIPOISSON asegurados"=reg_qp)
+modelsummary(modelQP, title = "Regresión Poisson Exponenciada",
+             stars = TRUE,
+             statistic = 'conf.int',
+             exponentiate = T,
+             output = "kableExtra")
+```
+
+Como observamos, nuestra tabla nos muestra algo nuevo: **los intervalos de confianza**
+Estos resultan importantes ya que nos van a confimar cuáles son realmente las variables que resultan significativas. En nuestro caso debemos tener claro que para que nuestra variable independiente resulta significativa, su intervalo de confianza no debe contener al 1. 
+
+# Si no lo ves muy bien (como yo jeje) podemos usar una tabla
+
+```{r}
+library(ggplot2)
+library(dotwhisker)
+
+dotwhisker::dwplot(list(Poisson=reg_p,CuasiPoisso=reg_qp,BinomialNegativa=reg_bn),exp=T) + scale_y_discrete(labels=c("plan_familiar","hogares_dependencia","instituciones","bibliotecas","educacion")) + scale_color_discrete(name="Modelos para:\nCantidad de Asegurados") + geom_vline(
+           xintercept = 1,
+           colour = "grey60",
+           linetype = 2
+       )
+```
+Esta gráfica nos demuestrra que nuestra única variable significante resulta ser: hogares_dependencia
+
+## Interpretación
+Debemos tener claro que nuestra interpretación siempre se encontrará en función del número 1, por lo que debemos comprender el resultado de la siguiente forma:
+
+### Hogares dependencia:
+```{r}
+exp(coef(reg_qp)[['hogares_dependencia']])
+```
+```{r}
+((1-0.9891885)*-1)*100
+```
+--> Encontramos que por cada unidad que aumenta nuestra variable **HOGARES_DEPENDENCIA**, nuestra variable dependiente disminuye en 1.08%. 
+
+Todo esto no es necesario si es que notamos que la interpretación se encuentra en función del 1
+
+
+
+## Pero si sale positivo? QUÉ HAGO??
+Aquí por fines educativos vamos a intepretar otra variable
+```{r}
+exp(coef(reg_qp)[['educacion']])
+```
+```{r}
+((1-1.016126)*-1)*100
+```
+Señalaremos, pues, que por cada unidad en la que aumenta nuestra variable **EDUCACION**, la variable dependiente aumentará en 1.61% 
+
+
+
+
+
